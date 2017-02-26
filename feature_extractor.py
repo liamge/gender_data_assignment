@@ -5,14 +5,20 @@ import numpy
 import re
 import time
 import csv
+import math
 import pickle
+import gensim
+from numpy.linalg import svd
 from nltk import ngrams
 from collections import *
+from sklearn.preprocessing import normalize
 from gensim import corpora
 from gensim.models.lsimodel import LsiModel
 
+
 source_text = []
 stemmed_text = []
+model = gensim.models.Word2Vec.load_word2vec_format('GoogleNews-vectors-negative300.bin.gz', binary=True)
 
 def timeit(func):
     # Timeit is a function that can be used as a decorator for another function so you can see its run time
@@ -175,6 +181,163 @@ def topic_models(text, n_topics):
     topics = numpy.asarray(topics).T.tolist()
     return topics
 
+# WORD VECTORS
+def transform_sent(sent):
+    '''
+    Takes as input a tokenized sentence (list of strings) and outputs a numpy array
+    where each row is the word vector for the corresponding word in the sentence.
+    Final matrix has dimensionality of len(sent) x dimensionality of word vectors
+    '''
+    vector = []
+    words = [x for x in sent if x in model.vocab]
+    for w in words:
+        vector.append(model[w])
+    vector = numpy.array(vector)
+
+    return vector
+
+def transform_tfidf(sent, weighted):
+    '''
+    :param sent: List of tokenized words
+    :param weighted: Dictionary of weighted word vectors
+    :return: the matrix where each row is a tf-idf weighted word vector
+    '''
+    vector = []
+    words = [w for w in sent if w in model.vocab]
+    for w in words:
+        vector.append(weighted[w])
+    vector = numpy.array(vector)
+
+    return vector
+
+def average_sent(sent):
+    '''
+    Takes as input a tokenized sentence and outputs the averaged corresponding word vectors.
+    Output should be of dimensionality 1 x dimensionality of word vectors.
+    '''
+    vecs = transform_sent(sent)
+    mean = numpy.mean(vecs, axis=0)
+    return mean
+
+def average_tfidf(sent, weights):
+    '''
+    :param sent: List of tokenized words
+    :param weights: Dictionary containing tf-idf weighted word vectors
+    :return: Averaged word vectors
+    '''
+    vecs = transform_tfidf(sent, weights)
+    mean = numpy.mean(vecs, axis=0)
+    return mean
+
+def tf(term, doc):
+    '''
+    Returns the normalized count of the term given the sentence (list of words).
+    '''
+    return doc.count(term) / len(doc)
+
+def idf(term, docs):
+    '''
+    Returns the log of the num of documents / num of documents containing term
+    '''
+    n_docs_containing = sum(term in d for d in docs)
+    return math.log(len(docs) / (1 + n_docs_containing))
+
+def tf_idf(term, doc, docs):
+    '''
+    Takes a term as input and returns the TF-IDF score of that term w/r/t a specific
+    document in a corpus.
+    '''
+    return tf(term, doc) * idf(term, docs)
+
+def tf_idf_generation(text):
+    '''
+    Generates a dictionary of all vocab items in text to be used later by the wrapper.
+    '''
+    doc = []
+    for sent in text:
+        doc.append([w for w in sent if w in model.vocab])
+
+    weighted = defaultdict(float)
+    for sent in doc:
+        for w in sent:
+            if w not in weighted:
+                weighted[w] = tf_idf(w, sent, text) * model[w]
+
+    return weighted
+
+@timeit
+def average_word_vecs(text, tfidf=False):
+    '''
+    :param text: text to return averaged word vectors for
+    :return: averaged word vectors for document in text
+    '''
+    features = []
+    if tfidf:
+        weights = tf_idf_generation(text)
+    for doc in text:
+        if tfidf:
+            features.append(average_tfidf(doc, weights))
+        else:
+            features.append(average_sent(doc))
+
+    features = numpy.asarray(features).T.tolist()
+    return features
+
+def pointwise_mult(sent):
+    '''
+    :param sent: list of tokenized words
+    :return: pointwise mutiplication of the corresponding word vectors
+    '''
+    vectors = transform_sent(sent)
+    vec = vectors[0]
+    for i in range(1, len(vectors)):
+        vec = numpy.multiply(vec, vectors[i])
+
+    return vec
+
+@timeit
+def pointwise_wrapper(text):
+    '''
+    :param text: list of lists where each sublist is of tokenized words
+    :return: feature format
+    '''
+    features = []
+    for doc in text:
+        features.append(pointwise_mult(doc))
+
+    features = numpy.array(features).T.tolist()
+    return features
+
+def svd_decomp(sent):
+    '''
+    :param sent: a tokenized sentence (or document)
+    :return: singular values of square matrix A' where A' = A x At
+    '''
+    matrix = transform_sent(sent)
+    mat = numpy.dot(matrix.T, matrix)
+    # Normalize to prevent convergence issues due to negative weights
+    # Currently not working
+    mat = normalize(mat)
+    try:
+        U, s, V = svd(mat)
+    except numpy.linalg.linalg.LinAlgError:
+        U, s, V = svd(matrix)
+
+    return s.T.tolist()
+
+@timeit
+def svd_wrapper(text):
+    '''
+    :param text: list of lists where each sublist is a tokenized document
+    :return: svds for each document in text
+    '''
+    features = []
+    for i in range(len(text)):
+        features.append([svd_decomp(text[i])])
+
+    features = numpy.asarray(features).tolist()
+    return features
+
 def log(fvec, hvec):
     with open('log.csv', 'a') as lfile:
         lwriter = csv.writer(lfile)
@@ -200,6 +363,14 @@ def extract_features(text, conf):
         features.extend(fvec)
         header.extend(hvec)
         log(fvec, hvec)
+    if 'svd_word_vectors' in conf or all:
+        features.extend(svd_wrapper(tokenized_text[:100]))
+    if 'pointwise_word_vectors' in conf or all:
+        features.extend(pointwise_wrapper(tokenized_text))
+    if 'average_word_vectors' in conf or all:
+        features.extend(average_word_vecs(tokenized_text))
+    if 'tfidf_word_vectors' in conf or all:
+        features.extend(average_word_vecs(tokenized_text, tfidf=True))
     if 'bag_of_trigrams' in conf or all:
         features.extend(ngram_counts(3, 500, stemmed_text))
     if 'bag_of_bigrams' in conf or all:
