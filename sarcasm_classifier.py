@@ -13,7 +13,7 @@ conffile = sys.argv[1]
 
 ndata = -1 # for testing feature extraction: optional arg to control how much of data to use. won't work for testing classification because it just takes the first n -- all one class
 if len(sys.argv) > 2:
-	ndata = sys.argv[2]
+    ndata = sys.argv[2]
 
 def load_data():
     with open(datafile) as f:
@@ -28,9 +28,9 @@ def predict_sarcasm(X, Y):
     return scores.mean()
 
 if __name__ == "__main__":
-	data = load_data()
-	conf = load_conf_file()
-	features = fe.extract_features([line[-1] for line in data if line[0]=="GEN"], conf)
-	labels = [line[1] for line in data if line[0]=="GEN"]
+    data = load_data()
+    conf = load_conf_file()
+    features = fe.extract_features([line[-1] for line in data if line[0]=="GEN"], conf)
+    labels = [line[1] for line in data if line[0]=="GEN"]
 
-	print (predict_sarcasm(features, labels))
+    print (predict_sarcasm(features, labels))
