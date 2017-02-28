@@ -184,17 +184,30 @@ def topic_models(text, n_topics):
 # WORD VECTORS
 def transform_sent(sent):
     '''
-    Takes as input a tokenized sentence (list of strings) and outputs a numpy array
-    where each row is the word vector for the corresponding word in the sentence.
-    Final matrix has dimensionality of len(sent) x dimensionality of word vectors
+    :param sent: list of tokenized words
+    :return: matrix of vectors corresponding to words in sentence (ones if <PAD> token)
     '''
     vector = []
-    words = [x for x in sent if x in model.vocab]
-    for w in words:
-        vector.append(model[w])
+    for w in sent:
+        if w == '<PAD>' or w not in model.vocab:
+            vector.append(numpy.ones((300,)))
+        else:
+            vector.append(model[w])
     vector = numpy.array(vector)
 
     return vector
+
+def pad_sentences(text):
+    '''
+    :param text: list of lists where sublists contain tokenized words
+    :return: list of lists where sublists contain fixed length sequences of words and <PAD> tokens
+    '''
+    maxlen = max([len(sent) for sent in text])
+    for sent in text:
+        while len(sent) < maxlen:
+            sent.append('<PAD>')
+
+    return text
 
 def transform_tfidf(sent, weighted):
     '''
@@ -212,8 +225,8 @@ def transform_tfidf(sent, weighted):
 
 def average_sent(sent):
     '''
-    Takes as input a tokenized sentence and outputs the averaged corresponding word vectors.
-    Output should be of dimensionality 1 x dimensionality of word vectors.
+    :param sent: list of tokenized words
+    :return: averaged word vectors for every word in sent if word is in model vocab
     '''
     vecs = transform_sent(sent)
     mean = numpy.mean(vecs, axis=0)
@@ -231,27 +244,34 @@ def average_tfidf(sent, weights):
 
 def tf(term, doc):
     '''
-    Returns the normalized count of the term given the sentence (list of words).
+    :param term: string of desired term
+    :param doc: list of tokenized words
+    :return: number of instances of term in doc regularized by the length
     '''
     return doc.count(term) / len(doc)
 
 def idf(term, docs):
     '''
-    Returns the log of the num of documents / num of documents containing term
+    :param term: string of desired term
+    :param docs: list of lists where sublists are lists of tokenized words
+    :return: inverse doc frequency of the term w/r/t a corpus
     '''
     n_docs_containing = sum(term in d for d in docs)
     return math.log(len(docs) / (1 + n_docs_containing))
 
 def tf_idf(term, doc, docs):
     '''
-    Takes a term as input and returns the TF-IDF score of that term w/r/t a specific
-    document in a corpus.
+    :param term: string of desired term
+    :param doc: list of tokenized words
+    :param docs: list of lists where sublists are lists of tokenized words
+    :return: tf-idf score for a term given a document and a corpus
     '''
     return tf(term, doc) * idf(term, docs)
 
 def tf_idf_generation(text):
     '''
-    Generates a dictionary of all vocab items in text to be used later by the wrapper.
+    :param text: list of lists where sublists are lists of tokenized words
+    :return: dictionary of text vocab where values are their respective tf-idf scores
     '''
     doc = []
     for sent in text:
@@ -311,32 +331,29 @@ def pointwise_wrapper(text):
 def svd_decomp(sent):
     '''
     :param sent: a tokenized sentence (or document)
-    :return: singular values of square matrix A' where A' = A x At
+    :returns: square matrix A' where A' = A x At
     '''
     matrix = transform_sent(sent)
-    mat = numpy.dot(matrix.T, matrix)
-    # Normalize to prevent convergence issues due to negative weights
-    # Currently not working
-    mat = normalize(mat)
-    try:
-        U, s, V = svd(mat)
-    except numpy.linalg.linalg.LinAlgError:
-        U, s, V = svd(matrix)
+    U, s, V = svd(matrix)
 
-    return s.T.tolist()
+    return s.tolist()
 
 @timeit
 def svd_wrapper(text):
-    '''
-    :param text: list of lists where each sublist is a tokenized document
-    :return: svds for each document in text
-    '''
     features = []
     for i in range(len(text)):
-        features.append([svd_decomp(text[i])])
+        features.append(svd_decomp(text[i]))
 
-    features = numpy.asarray(features).tolist()
+    features = numpy.array(features).T.tolist()
     return features
+
+def load_encoded():
+    '''
+    :return: encoded sentence vectors based off of the autoencoder in autoencoder.ipynb
+    '''
+    features = pickle.load(open('encoded.pkl', 'rb')).T.tolist()
+    return features
+
 
 def log(fvec, hvec):
     with open('log.csv', 'a') as lfile:
@@ -363,8 +380,10 @@ def extract_features(text, conf):
         features.extend(fvec)
         header.extend(hvec)
         log(fvec, hvec)
+    if 'encoded' in conf or all:
+        features.extend(load_encoded())
     if 'svd_word_vectors' in conf or all:
-        features.extend(svd_wrapper(tokenized_text[:100]))
+        features.extend(svd_wrapper(pad_sentences(tokenized_text)))
     if 'pointwise_word_vectors' in conf or all:
         features.extend(pointwise_wrapper(tokenized_text))
     if 'average_word_vectors' in conf or all:
