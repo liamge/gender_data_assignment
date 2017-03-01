@@ -2,6 +2,9 @@
 
 from sklearn.model_selection import cross_val_score
 from sklearn import svm
+from sklearn.neural_network import MLPClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.tree import DecisionTreeClassifier
 import feature_extractor as fe
 import numpy
 import re
@@ -25,6 +28,8 @@ def load_conf_file():
 
 def predict_sarcasm(X, Y):
     scores = cross_val_score(svm.SVC(), X, Y, scoring='accuracy', cv=10)
+    #scores = cross_val_score(MLPClassifier(max_iter=1000), X, Y, scoring='accuracy', cv=10)
+    #scores = cross_val_score(RandomForestClassifier(), X, Y, scoring='accuracy', cv=10)
     return scores.mean()
 
 if __name__ == "__main__":
