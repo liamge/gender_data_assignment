@@ -11,10 +11,8 @@ import gensim
 from numpy.linalg import svd
 from nltk import ngrams
 from collections import *
-from sklearn.preprocessing import normalize
 from gensim import corpora
 from gensim.models.lsimodel import LsiModel
-
 
 source_text = []
 stemmed_text = []
@@ -71,20 +69,11 @@ def bag_of_function_words():
 
 # NGRAM FUNCTIONS
 @timeit
-def pos_transform(text):
-    # Turns tokenized text into a list of lists containing POS tags
-    pos = [[x[1] for x in nltk.pos_tag(essay)] for essay in text]
-
-    return pos
-
-
-@timeit
 def compute_ngrams(n, text, pos=False):
     # General function that takes a tokenized corpus as input and outputs a list of lists
     # with each sublist containing the bigrams in it's equivalent essay
     ngs = []
     if pos:
-        # List comprehension for turning a text into a list of it's POSs
         text = tagged_text
     if n == 1 and not pos:
         # List comprehension for handling unigram stripping of stopwords
@@ -331,12 +320,12 @@ def pointwise_wrapper(text):
 def svd_decomp(sent):
     '''
     :param sent: a tokenized sentence (or document)
-    :returns: square matrix A' where A' = A x At
+    :returns: singular values of the matrix representing the word vectors in that sentence
     '''
     matrix = transform_sent(sent)
     U, s, V = svd(matrix)
 
-    return s.tolist()
+    return s
 
 @timeit
 def svd_wrapper(text):
@@ -353,7 +342,6 @@ def load_encoded():
     '''
     features = pickle.load(open('encoded.pkl', 'rb')).T.tolist()
     return features
-
 
 def log(fvec, hvec):
     with open('log.csv', 'a') as lfile:
@@ -383,7 +371,10 @@ def extract_features(text, conf):
     if 'encoded' in conf or all:
         features.extend(load_encoded())
     if 'svd_word_vectors' in conf or all:
-        features.extend(svd_wrapper(pad_sentences(tokenized_text)))
+        # Use padded documents to keep the number of singular values consistent
+        padded_sequences = pad_sentences(tokenized_text)
+        svds = svd_wrapper(padded_sequences)
+        features.extend(svds)
     if 'pointwise_word_vectors' in conf or all:
         features.extend(pointwise_wrapper(tokenized_text))
     if 'average_word_vectors' in conf or all:
