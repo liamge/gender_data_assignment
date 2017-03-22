@@ -1,1 +1,1 @@
-bag_of_function_words
+average_word_vectors
